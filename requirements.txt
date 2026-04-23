@@ -1,0 +1,17 @@
+asttokens==3.0.1
+attrs==24.3.0
+colorama==0.4.6
+ctktreeview @ git+https://github.com/JohnDevlopment/CTkTreeview.git@31858b1fbfa503eedbb9379d01ac7ef8e6a555ea
+customtkinter==5.2.2
+darkdetect==0.8.0
+docx==0.2.4
+et-xmlfile==2.0.0
+executing==2.2.1
+icecream==2.2.0
+lxml==6.1.0
+openpyxl==3.1.5
+packaging==26.1
+pillow==12.2.0
+pygments==2.20.0
+python-docx==1.2.0
+typing-extensions==4.15.0
