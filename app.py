@@ -1,33 +1,145 @@
 import customtkinter as ctk
-from CTkTreeview import CTkTreeview
 import os
-import datetime
+from datetime import datetime
+from CTkTreeview import CTkTreeview
 from docx import Document
 from docx.shared import Cm
 import openpyxl
 from openpyxl.styles import Font
 import threading
 
-# Настройка внешнего вида
-ctk.set_appearance_mode("Dark")  # Тёмная тема
-ctk.set_default_color_theme("blue")  # Цветовая схема
+# Настройка внешнего вида и темы
+ctk.set_appearance_mode("Dark")  # Варианты: "Light", "Dark"
+ctk.set_default_color_theme("blue")  # Варианты: "blue", "green", "dark-blue"
 
-class FileExplorerApp(ctk.CTk):
+class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Modern File Explorer — Просмотр файлов с метаданными")
-        self.geometry("1210x800")
+
+        # Настройка окна
+        self.title("Смена имени / список")
+        self.geometry("1210x720")
         self.resizable(True, True)
 
-        # Создаём основной фрейм
-        self.main_frame = ctk.CTkFrame(self)
-        self.main_frame.pack(fill="both", expand=True, padx=20, pady=20)
-        self.create_widgets()
+        # Создание Tabview (виджет для вкладок)
+        self.tabview = ctk.CTkTabview(self, width=1200, height=700)
+        self.tabview.pack(pady=0, padx=0)
 
-    def create_widgets(self):
+        # Добавление вкладок
+        self.tab_1 = self.tabview.add("Переименование файлов")
+        self.tab_2 = self.tabview.add("Список файлов")
+
+        # Переменные
+        self.folder_path = ctk.StringVar()
+        self.keyword = ctk.StringVar(value="file")
+        self.sort_option = ctk.StringVar(value="Имя файла")
+
+        # Настройка содержимого для каждой вкладки
+        self._setup_tab_1()
+        self._setup_tab_2()
+
+    def _setup_tab_1(self):
+        """Содержимое первой вкладки"""
+        # Заголовок
+        title_label = ctk.CTkLabel(self.tab_1, text="Переименование файлов с порядковым номером", font=("Arial", 16, "bold"))
+        title_label.pack(pady=10)
+
+        # Поле для выбора папки
+        folder_frame = ctk.CTkFrame(self.tab_1)
+        folder_frame.pack(fill="x", padx=20, pady=10)
+
+        ctk.CTkLabel(folder_frame, text="Папка:").pack(side="left", padx=5)
+        ctk.CTkEntry(folder_frame, textvariable=self.folder_path, width=300).pack(side="left", padx=5)
+        ctk.CTkButton(folder_frame, text="Обзор", command=self.browse_folder).pack(side="right", padx=15)
+
+        # Поле для ключевого слова
+        keyword_frame = ctk.CTkFrame(self.tab_1)
+        keyword_frame.pack(fill="x", padx=20, pady=10)
+
+        ctk.CTkLabel(keyword_frame, text="Ключевое слово:").pack(side="left", padx=5)
+        ctk.CTkEntry(keyword_frame, textvariable=self.keyword, width=200).pack(side="left", padx=5)
+
+        # Выбор критерия сортировки
+        sort_frame = ctk.CTkFrame(self.tab_1)
+        sort_frame.pack(fill="x", padx=20, pady=10)
+
+        ctk.CTkLabel(sort_frame, text="Сортировка по:").pack(side="left", padx=5)
+        ctk.CTkComboBox(sort_frame,
+                        values=["Имя файла", "Дата изменения", "Дата создания"],
+                        variable=self.sort_option).pack(side="left", padx=5)
+
+        # Кнопка запуска переименования
+        rename_button = ctk.CTkButton(self.tab_1, text="Переименовать файлы", command=self.rename_files)
+        rename_button.pack(pady=20)
+
+        # Область для вывода лога
+        self.log_text = ctk.CTkTextbox(self.tab_1, height=150)
+        self.log_text.pack(fill="both", expand=True, padx=20, pady=10)
+        self.log_text.configure(text_color="white")
+
+    def browse_folder(self):
+        folder = ctk.filedialog.askdirectory()
+        if folder:
+            self.folder_path.set(folder)
+            self.log(f"Выбрана папка: {folder}")
+
+    def log(self, message):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.log_text.insert("end", f"[{timestamp}] {message}\n")
+        self.log_text.see("end")
+
+    def rename_files(self):
+        folder = self.folder_path.get()
+        keyword = self.keyword.get().strip()
+        sort_by = self.sort_option.get()
+
+        if not folder or not os.path.isdir(folder):
+            self.log("Ошибка: укажите корректную папку!")
+            return
+
+        try:
+            # Получаем список файлов (исключая каталоги)
+            files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
+
+            if not files:
+                self.log("В папке нет файлов для переименования.")
+                return
+
+            # Сортируем файлы в зависимости от выбранного критерия
+            if sort_by == "Имя файла":
+                files.sort()
+            elif sort_by == "Дата изменения":
+                files.sort(key=lambda x: os.path.getmtime(os.path.join(folder, x)))
+            elif sort_by == "Дата создания":
+                files.sort(key=lambda x: os.path.getctime(os.path.join(folder, x)))
+
+            # Переименовываем файлы
+            for idx, filename in enumerate(files, start=1):
+                old_path = os.path.join(folder, filename)
+                file_ext = os.path.splitext(filename)[1]
+
+                # Формируем новое имя
+                if keyword:
+                    new_name = f"{keyword}_{idx:03d}{file_ext}"
+                else:
+                    new_name = f"{idx:03d}{file_ext}"
+
+                new_path = os.path.join(folder, new_name)
+
+                os.rename(old_path, new_path)
+                self.log(f"Переименован: {filename} → {new_name}")
+
+            self.log("Переименование завершено!")
+
+        except Exception as e:
+            self.log(f"Ошибка: {str(e)}")
+
+
+    def _setup_tab_2(self):
+        """Содержимое второй вкладки"""
         # Заголовок
         title_label = ctk.CTkLabel(
-            self.main_frame,
+            self.tab_2,
             text="📁 Modern File Explorer",
             font=ctk.CTkFont(size=24, weight="bold")
         )
@@ -35,7 +147,7 @@ class FileExplorerApp(ctk.CTk):
 
         # Метка пути
         self.path_label = ctk.CTkLabel(
-            self.main_frame,
+            self.tab_2,
             text="Выбранная папка: не выбрана",
             font=ctk.CTkFont(size=14),
             wraplength=1100
@@ -43,7 +155,7 @@ class FileExplorerApp(ctk.CTk):
         self.path_label.pack(fill="x", pady=10)
 
         # Кнопки управления
-        button_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        button_frame = ctk.CTkFrame(self.tab_2, fg_color="transparent")
         button_frame.pack(fill="x", pady=10)
 
         self.select_button = ctk.CTkButton(
@@ -81,20 +193,20 @@ class FileExplorerApp(ctk.CTk):
         self.xlsx_button.pack(side="left", padx=5)
 
         # Индикатор прогресса
-        self.progress = ctk.CTkProgressBar(self.main_frame)
+        self.progress = ctk.CTkProgressBar(self.tab_2)
         self.progress.pack(fill="x", pady=10, padx=10)
         self.progress.set(0)
         self.progress.pack_forget()  # Скрываем изначально
 
         # Treeview с скроллбаром
-        tree_frame = ctk.CTkFrame(self.main_frame)
+        tree_frame = ctk.CTkFrame(self.tab_2)
         tree_frame.pack(fill="both", expand=True, pady=10)
         columns = ('name', 'type', 'size', 'creation', 'modification', 'access')
         self.tree = CTkTreeview(
             tree_frame,
             columns=columns,
             show='headings',
-            height=25
+            height=20
         )
         # Заголовки колонок
         self.tree.heading('name', text='Имя файла/папки')
@@ -117,11 +229,12 @@ class FileExplorerApp(ctk.CTk):
         scrollbar.pack(side="right", fill="y")
         # Строка статуса
         self.status_label = ctk.CTkLabel(
-            self.main_frame,
+            self.tab_2,
             text="Выберите папку для отображения файлов",
             font=ctk.CTkFont(size=12)
         )
         self.status_label.pack(fill="x", pady=5)
+
     def select_folder(self):
         """Открывает диалоговое окно для выбора папки и обновляет список файлов."""
         folder_path = ctk.filedialog.askdirectory(title="Выберите папку")
@@ -142,16 +255,17 @@ class FileExplorerApp(ctk.CTk):
             else:
                 size = f"{size_bytes / (1024**2):.2f} МБ"
             # Даты
-            creation_time = datetime.datetime.fromtimestamp(stat.st_ctime)
-            modification_time = datetime.datetime.fromtimestamp(stat.st_mtime)
-            access_time = datetime.datetime.fromtimestamp(stat.st_atime)
+            creation_time = datetime.fromtimestamp(stat.st_ctime)
+            modification_time = datetime.fromtimestamp(stat.st_mtime)
+            access_time = datetime.fromtimestamp(stat.st_atime)
             return {
                 'size': size,
                 'creation': creation_time.strftime('%Y-%m-%d %H:%M:%S'),
                 'modification': modification_time.strftime('%Y-%m-%d %H:%M:%S'),
                 'access': access_time.strftime('%Y-%m-%d %H:%M:%S')
             }
-        except Exception:
+        except Exception as e:
+            print(f"Ошибка: {str(e)}")
             return {'size': 'N/A', 'creation': 'N/A', 'modification': 'N/A', 'access': 'N/A'}
     def collect_all_files(self, folder_path, progress_callback=None):
         """Рекурсивно собирает все файлы и папки с их метаданными."""
@@ -279,7 +393,7 @@ class FileExplorerApp(ctk.CTk):
             doc.add_paragraph()
 
             # Создаём таблицу
-            headers = ['Имя', 'Тип', 'Размер', 'Создан', 'Изменён', 'Открыт']
+            headers = ['Имя', 'Тип', 'Размер', 'Дата создания', 'Дата изменения', 'Дата открытия']
             table = doc.add_table(rows=1, cols=len(headers))
 
             table.style = 'Table Grid'
@@ -325,7 +439,7 @@ class FileExplorerApp(ctk.CTk):
             ws.column_dimensions['F'].width = 20
 
             # Заголовки
-            headers = ['Имя', 'Тип', 'Размер', 'Создан', 'Изменён', 'Открыт']
+            headers = ['Имя', 'Тип', 'Размер', 'Дата создания', 'Дата изменения', 'Дата открытия']
             for col, header in enumerate(headers, 1):
                 cell = ws.cell(row=1, column=col, value=header)
                 cell.font = Font(bold=True)
@@ -341,8 +455,7 @@ class FileExplorerApp(ctk.CTk):
             wb.save(file_path)
             self.status_label.configure(text=f"Данные экспортированы в XLSX: {file_path}")
 
-
 # Запуск приложения
 if __name__ == "__main__":
-    app = FileExplorerApp()
+    app = App()
     app.mainloop()
