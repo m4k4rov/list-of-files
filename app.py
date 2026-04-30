@@ -7,6 +7,9 @@ from docx.shared import Cm
 import openpyxl
 from openpyxl.styles import Font
 import threading
+import tkinter.messagebox as messagebox
+import shutil
+from pathlib import Path
 
 # Настройка внешнего вида и темы
 ctk.set_appearance_mode("Dark")  # Варианты: "Light", "Dark"
@@ -28,15 +31,20 @@ class App(ctk.CTk):
         # Добавление вкладок
         self.tab_1 = self.tabview.add("Переименование файлов")
         self.tab_2 = self.tabview.add("Список файлов")
+        self.tab_3 = self.tabview.add("Организация файлов")
 
         # Переменные
         self.folder_path = ctk.StringVar()
         self.keyword = ctk.StringVar(value="file")
         self.sort_option = ctk.StringVar(value="Имя файла")
 
+        self.selected_folder = None
+        self.files_list = []
+
         # Настройка содержимого для каждой вкладки
         self._setup_tab_1()
         self._setup_tab_2()
+        self._setup_tab_3()
 
     def _setup_tab_1(self):
         """Содержимое первой вкладки"""
@@ -140,7 +148,7 @@ class App(ctk.CTk):
         # Заголовок
         title_label = ctk.CTkLabel(
             self.tab_2,
-            text="📁 Modern File Explorer",
+            text="📁 Список файлов",
             font=ctk.CTkFont(size=24, weight="bold")
         )
         title_label.pack(pady=(0, 20))
@@ -454,6 +462,216 @@ class App(ctk.CTk):
 
             wb.save(file_path)
             self.status_label.configure(text=f"Данные экспортированы в XLSX: {file_path}")
+
+    def _setup_tab_3(self):
+        # Заголовок
+        title_label = ctk.CTkLabel(
+            self.tab_3,
+            text="Organizer файлов по расширениям",
+            font=ctk.CTkFont(size=20, weight="bold")
+        )
+        title_label.pack(pady=20)
+
+        # Кнопка выбора папки
+        select_folder_btn = ctk.CTkButton(
+            self.tab_3,
+            text="Выбрать папку для сканирования",
+            command=self.select_folder_org,
+            width=200
+        )
+        select_folder_btn.pack(pady=10)
+
+        # Метка выбранной папки
+        self.folder_label = ctk.CTkLabel(self.tab_3, text="Папка не выбрана", text_color="gray")
+        self.folder_label.pack(pady=5)
+
+        # Фрейм для списка файлов
+        files_frame = ctk.CTkFrame(self.tab_3)
+        files_frame.pack(fill="both", expand=True, padx=20, pady=10)
+
+        # Текстовое поле для вывода файлов
+        self.files_textbox = ctk.CTkTextbox(files_frame, wrap="word")
+        self.files_textbox.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Строка прогресса
+        progress_frame = ctk.CTkFrame(self.tab_3, fg_color="transparent")
+        progress_frame.pack(fill="x", padx=20, pady=5)
+
+        self.progress_label = ctk.CTkLabel(progress_frame, text="Готов к работе")
+        self.progress_label.pack(side="left")
+
+        self.progress_bar = ctk.CTkProgressBar(progress_frame)
+        self.progress_bar.pack(side="right", fill="x", expand=True, padx=(10, 0))
+        self.progress_bar.set(0)
+
+        # Кнопки действий
+        buttons_frame = ctk.CTkFrame(self.tab_3, fg_color="transparent")
+        buttons_frame.pack(fill="x", padx=20, pady=10)
+
+        scan_btn = ctk.CTkButton(
+            buttons_frame,
+            text="Сканировать папку",
+            command=self.scan_folder,
+            fg_color="green"
+        )
+        scan_btn.pack(side="left", padx=5)
+
+        organize_btn = ctk.CTkButton(
+            buttons_frame,
+            text="Организовать файлы",
+            command=self.start_organize_files,
+            fg_color="orange"
+        )
+        organize_btn.pack(side="right", padx=5)
+
+    def select_folder_org(self):
+        """Выбор папки через диалоговое окно с автоматическим сканированием"""
+        folder = ctk.filedialog.askdirectory()
+        if folder:
+            self.selected_folder = folder
+            self.folder_label.configure(text=f"Выбрана: {folder}")
+            self.files_textbox.delete("1.0", "end")
+            self.scan_folder()  # Автоматическое сканирование после выбора
+
+    def scan_folder(self):
+        """Сканирование выбранной папки и всех подпапок"""
+        if not self.selected_folder:
+            self.show_error("Сначала выберите папку!")
+            return
+
+        try:
+            self.files_list = []
+            total_files = 0
+
+            # Рекурсивный обход всех папок
+            for root, dirs, files in os.walk(self.selected_folder):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    self.files_list.append(file_path)
+                    total_files += 1
+
+            # Вывод результатов
+            self.files_textbox.delete("1.0", "end")
+            self.files_textbox.insert("1.0", f"Найдено файлов: {total_files}\n\n")
+
+            if self.files_list:
+                for file_path in self.files_list[:100]:  # Ограничение для отображения
+                    self.files_textbox.insert("end", f"{file_path}\n")
+
+                if len(self.files_list) > 100:
+                    self.files_textbox.insert("end", f"\n... и ещё {len(self.files_list) - 100} файлов")
+            else:
+                self.files_textbox.insert("end", "В папке нет файлов.")
+
+        except Exception as e:
+            self.show_error(f"Ошибка при сканировании: {str(e)}")
+
+    def start_organize_files(self):
+        """Запуск организации файлов в отдельном потоке"""
+        if not self.files_list:
+            self.show_error("Сначала выполните сканирование!")
+            return
+
+        # Запуск в отдельном потоке, чтобы не блокировать интерфейс
+        thread = threading.Thread(target=self.organize_files)
+        thread.daemon = True
+        thread.start()
+
+    def organize_files(self):
+        """Организация файлов по расширениям с прогрессом"""
+        self.update_progress("Начинаем организацию файлов...", 0)
+
+        try:
+            # Создание целевой папки
+            target_folder = os.path.join(self.selected_folder, "Organized_Files")
+            os.makedirs(target_folder, exist_ok=True)
+
+            # Словарь для группировки по расширениям
+            files_by_extension = {}
+
+            # Группировка файлов
+            for file_path in self.files_list:
+                file_name = os.path.basename(file_path)
+                file_ext = Path(file_name).suffix.lower()
+
+                # Если нет расширения, помещаем в отдельную категорию
+                if not file_ext:
+                    file_ext = "no_extension"
+                else:
+                    # Убираем точку из расширения
+                    file_ext = file_ext[1:]
+
+                if file_ext not in files_by_extension:
+                    files_by_extension[file_ext] = []
+                files_by_extension[file_ext].append(file_path)
+
+
+            # Подсчёт общего количества файлов для прогресса
+            total_files = len(self.files_list)
+            copied_count = 0
+
+            # Копирование файлов с обновлением прогресса
+            for ext, files in files_by_extension.items():
+                # Создаём папку для расширения
+                ext_folder = os.path.join(target_folder, ext)
+                os.makedirs(ext_folder, exist_ok=True)
+
+                for file_path in files:
+                    try:
+                        # Генерируем уникальное имя при конфликте
+                        file_name = os.path.basename(file_path)
+                        target_path = os.path.join(ext_folder, file_name)
+
+                        # Если файл уже существует, добавляем суффикс
+                        counter = 1
+                        while os.path.exists(target_path):
+                            name_without_ext = Path(file_name).stem
+                            extension = Path(file_name).suffix
+                            new_name = f"{name_without_ext}_{counter}{extension}"
+                            target_path = os.path.join(ext_folder, new_name)
+                            counter += 1
+
+                        shutil.copy2(file_path, target_path)
+                        copied_count += 1
+
+                        # Обновление прогресса
+                        progress = copied_count / total_files
+                        self.update_progress(f"Копируется: {file_name} ({copied_count}/{total_files})", progress)
+
+                    except Exception as e:
+                        print(f"Ошибка копирования {file_path}: {e}")
+
+            # Завершение процесса
+            self.update_progress(f"Завершено! Скопировано {copied_count} файлов в '{target_folder}'", 1.0)
+            self.show_info(f"Успешно скопировано {copied_count} файлов в папку '{target_folder}'")
+
+        except Exception as e:
+            self.show_error(f"Ошибка при организации файлов: {str(e)}")
+        finally:
+            # Сбрасываем прогресс-бар после завершения
+            self.after(0, lambda: self.progress_bar.set(0))
+            # Можно добавить небольшую задержку перед сбросом, если нужно
+            # self.after(2000, lambda: self.progress_bar.set(0))
+
+    def update_progress(self, message, progress_value):
+        """Обновление строки прогресса и метки"""
+        def update():
+            self.progress_label.configure(text=message)
+            self.progress_bar.set(progress_value)
+            # Обновляем интерфейс
+            self.update()
+
+        # Выполняем обновление в основном потоке GUI
+        self.after(0, update)
+
+    def show_error(self, message):
+        """Показать сообщение об ошибке"""
+        messagebox.showerror("Ошибка", message)
+
+    def show_info(self, message):
+        """Показать информационное сообщение"""
+        messagebox.showinfo("Информация", message)
+
 
 # Запуск приложения
 if __name__ == "__main__":
